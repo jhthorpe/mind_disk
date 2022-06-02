@@ -130,7 +130,7 @@ md_start() {
     if [ $? != 0 ]; then
       unlock_file $MD_FILE 
       $FAIL_CMD
-      return 1
+      exit 1
     else
       unlock_file $MD_FILE
     fi
@@ -580,6 +580,7 @@ set_MD_DISKID() {
     exit 1
 
   fi
+
 }
 
 #--------------------------------------------------------------------

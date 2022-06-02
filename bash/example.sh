@@ -1,6 +1,9 @@
 #!/bin/bash
 #
 #   Example of how to use mind_disk bash exectuables
+#   
+#   NOTE : this is only really intended to work in the 
+#   $SLURM_TMPDIR directories, at the moment
 
 my_command () {
   echo "I have been called"  
@@ -23,7 +26,7 @@ cd $SLURM_TMPDIR
 #
 #   MD_PATH is an enviroment variable that points to the directory 
 #   where mind_disk can generate temporary files
-source ~james.thorpe/scripts/mind_disk/mind_disk.sh; trap md_kill EXIT
+source /home/james.thorpe/bin/mind_disk/bash/mind_disk.sh; trap md_kill EXIT
 export MD_PATH=~james.thorpe/mdquota
 
 #-----------------------------------------------------------------------

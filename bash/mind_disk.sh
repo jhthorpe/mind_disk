@@ -275,43 +275,27 @@ disk_manager() {
   do
     #check if the job is finished
     if [ "$( get_pid_start_time $PID )" != "$TME" ]; then
-      update_disk $MD_THISDISK
+      lock_file "-x -w $INC" $MD_FILE
+      if [ $? == 0 ]; then 
+        update_disk $MD_THISDISK
+        unlock_file $MD_FILE
+      fi
       return 0
     fi
 
     #check if we are out of disk
-    # note that this will wait INC seconds, and then 
-    # fail 
-    lock_file "-x -w $INC" $MD_FILE
+    # this will call exit if we are out of disk
+    check_disk 
 
-    #If we managed to get the lock
-    if [ $? == 0 ]; then
-      check_disk 
-      unlock_file $MD_FILE 
-
-      #counter. Cancel after 1 month 
-      counter=$((counter+1))
-      if (( $( bc -l <<< "$counter > $maxcounter") )); then
-        kill -9 $PID
-        exit 1
-      fi
-      # I'd ideally like to sleep the total amount of time we
-      #  waited, rather than however long it took to get a lock
-      #  plus the extra increment, but I haven't implemented that 
-      sleep $INC
-
-    #if we didn't get the lock, just increment counter and 
-    #hope for next time. We will have waited $INC already, 
-    # so just skip to next cycle
-    else 
-      #counter. Cancel after 1 month 
-      counter=$((counter+1))
-      if (( $( bc -l <<< "$counter > $maxcounter") )); then
-        kill -9 $PID
-        exit 1
-      fi
+    #counter. Cancel after 1 month 
+    counter=$((counter+1))
+    if (( $( bc -l <<< "$counter > $maxcounter") )); then
+      kill -9 $PID
+      exit 1
     fi
 
+    #sleep until next check
+    sleep $INC
 
   done
 }

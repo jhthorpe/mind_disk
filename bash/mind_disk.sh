@@ -61,7 +61,7 @@ md_exec() {
  
   #in case of empty inc
   if [ -z "$INC" ]; then INC=100; fi
-  if (( $( bc -l <<< "$INC < 0" ) )); then
+  if (( $( bc -l <<< "$INC <= 0" ) )); then
     INC=100
   fi
 
@@ -114,44 +114,43 @@ md_start() {
     MD_THISQUOTA=$( proc_df "$1" ) 
   fi
 
+  #check the quotafile enviromental variable exists and is not blank
+  if [ -z "$MD_PATH" ]; then
+    echo "ERROR ERROR ERROR"
+    echo "MD_PATH is either unset, or set to an empty string"
+    exit 1
+  fi
+  export MD_FILE="$MD_PATH/mdquota.txt"
+
   #initialize the diskid variable
   set_MD_DISKID
   
   #initialize the diskquota file
-  init_MD_FILE
-
-  #initialize the linenum
-  set_MD_LINENUM
-
-  #update the quota
-  lock_file "-x -w 100" $MD_FILE 
+  lock_file "-x" $MD_FILE 
   if [ $? == 0 ]; then
+    init_MD_FILE
+    set_MD_LINENUM
+
     update_quota $MD_THISQUOTA 
     if [ $? != 0 ]; then
       unlock_file $MD_FILE 
       $FAIL_CMD
       exit 1
-    else
-      unlock_file $MD_FILE
     fi
-  else 
-    echo "md_start could not lock $MD_FILE"
-    exit 1
-  fi
 
-  #get current disk usage
-  MD_THISDISK=$( get_THISDISK )
-  lock_file "-x -w 100" $MD_FILE 
-  if [ $? == 0 ]; then
+    #get current disk usage
+    MD_THISDISK=$( get_THISDISK )
     update_disk $MD_THISDISK
     if [ $? != 0 ]; then
+      echo "@mind_disk($$) Could not update disk"
       unlock_file $MD_FILE
       exit 1
-    else 
-      unlock_file $MD_FILE 
     fi
+
+    unlock_file $MD_FILE
+
   else 
-    echo "md_start could not lock $MD_FILE"
+    echo "@mind_disk($$) md_start could not lock $MD_FILE"
     exit 1
   fi
 
@@ -222,7 +221,7 @@ md_cleanup() {
       NEWDISK=$( bc -l <<< "$NEWDISK + $THATDISK" )
     done
 
-    lock_file "-x" $MD_FILE
+    lock_file "-x -w 100" $MD_FILE
     if [ $? == 0 ]; then
       set_quota_disk $NEWQUOTA $NEWDISK
       unlock_file $MD_FILE
@@ -235,7 +234,7 @@ md_cleanup() {
   
 #  #if this node doesn't have any jobs, clean it out 
 #  if [ $? != 0 ]; then
-#    echo "Node $MD_DISKID has no jobs, cleaning data" 
+#    echo "@mind_disk($$) Node $MD_DISKID has no jobs, cleaning data" 
 #    lock_file "-x -w 100" $MD_FILE 
 #    if [ $? == 0 ]; then
 #      reset_quota 
@@ -345,10 +344,10 @@ update_quota(){
   NEWQUOTA=$( bc -l <<< "$QUOTA+$RES" ) 
   if (( $( bc -l <<< "$NEWQUOTA < 0") )); then NEWQUOTA=0; fi
   if (( $( bc -l <<< "$MDISK < $NEWQUOTA" ) )); then
-    echo "ERROR ERROR ERROR"
-    echo "There is insufficent disk on $HOST for quota"
-    echo "MAXDISK : $MDISK"
-    echo "MYQUOTA : $NEWQUOTA"
+    echo "@mind_disk($$) ERROR ERROR ERROR"
+    echo "@mind_disk($$) There is insufficent disk on $HOST for quota"
+    echo "@mind_disk($$) MAXDISK : $MDISK"
+    echo "@mind_disk($$) MYQUOTA : $NEWQUOTA"
     return 1  
   fi
 
@@ -411,11 +410,10 @@ update_disk(){
   #check if the current disk usage is above quota
   NEWDISK=$( get_THISDISK )
   if (( $( bc -l <<< "$MD_THISQUOTA < $NEWDISK" ) )); then
-    unlock_file $MD_FILE 
-    echo "ERROR ERROR ERROR"
-    echo "This process has exceeded it's disk quota"
-    echo "DISK USAGE: $NEWDISK"
-    echo "QUOTA : $MD_THISQUOTA"
+    echo "@mind_disk($$) ERROR ERROR ERROR"
+    echo "@mind_disk($$) This process has exceeded it's disk quota"
+    echo "@mind_disk($$) DISK USAGE: $NEWDISK"
+    echo "@mind_disk($$) QUOTA : $MD_THISQUOTA"
     return 1  
   fi
 
@@ -444,10 +442,10 @@ check_disk(){
   #check if the current disk usage is above quota
   MD_THISDISK=$( get_THISDISK )
   if (( $( bc -l <<< "$MD_THISQUOTA < $NEWDISK" ) )); then
-    echo "ERROR ERROR ERROR"
-    echo "This process has exceeded it's disk quota"
-    echo "DISK USAGE: $MD_THISDISK"
-    echo "QUOTA : $MD_THISQUOTA"
+    echo "@mind_disk($$) ERROR ERROR ERROR"
+    echo "@mind_disk($$) This process has exceeded it's disk quota"
+    echo "@mind_disk($$) DISK USAGE: $MD_THISDISK"
+    echo "@mind_disk($$) QUOTA : $MD_THISQUOTA"
     exit 1  
   fi
 
@@ -482,7 +480,7 @@ proc_df() {
   elif [ "$UNIT" == "K" ]; then
     CONV="0.000001"
   else
-    echo "Bad unit in proc_df input" >&2
+    echo "@mind_disk($$) Bad unit in proc_df input" >&2
     exit 1;
   fi
   DISK=$( bc -l <<< "$CONV*$DISK" ) #adjust DISK to GB 
@@ -556,27 +554,27 @@ set_MD_DISKID() {
   #get mount
   MOUNT=$( df -h . | tail -1 | xargs | cut -f 6 -d ' ' )
 
-  echo "Host is $HOST"
-  echo "Mount is $MOUNT"
+  echo "@mind_disk($$) Host is $HOST"
+  echo "@mind_disk($$) Mount is $MOUNT"
 
   if [ "${MOUNT::3}" == "/sc" ]; then
-    echo "This is scratch disk on tmpdir"
+    echo "@mind_disk($$) This is scratch disk on tmpdir"
     MD_DISKID="${HOST::-6}"
 
   elif [ "${MOUNT::3}" == "/bl" ]; then
-    echo "This is scratch disk on /blue"
+    echo "@mind_disk($$) This is scratch disk on /blue"
     MD_DISKID="BLUE"
 
   elif [ "${MOUNT::3}" == "/re" ]; then
-    echo "This is scratch disk on /red"
+    echo "@mind_disk($$) This is scratch disk on /red"
     MD_DISKID="RED"
 
   elif [ "${MOUNT::3}" == "/ho" ]; then
     MD_DISKID="HOME"
 
   else
-    echo "ERROR ERROR ERROR"
-    echo "Bad Mount or Host in set_MD_DISKID"
+    echo "@mind_disk($$) ERROR ERROR ERROR"
+    echo "@mind_disk($$) Bad Mount or Host in set_MD_DISKID"
     exit 1
 
   fi
@@ -593,18 +591,9 @@ set_MD_DISKID() {
 #--------------------------------------------------------------------
 init_MD_FILE() {
 
-  #check the quotafile enviromental variable exists and is not blank
-  if [ -z "$MD_PATH" ]; then
-    echo "ERROR ERROR ERROR"
-    echo "MD_PATH is either unset, or set to an empty string"
-    exit 1
-  fi
-
-  export MD_FILE="$MD_PATH/mdquota.txt"
-
   #check the file exists, and if not, exist it
   if [ ! -f "$MD_FILE" ]; then
-    echo "$MD_FILE does not exist, creating"
+    echo "@mind_disk($$) $MD_FILE does not exist, creating"
     mkdir -p $MD_PATH
     echo "DISKID  MAXDISK  GQUOTA  GUSAGE" > $MD_FILE
   fi
@@ -623,11 +612,9 @@ set_MD_LINENUM() {
 
   #if line is not found, add it to the file
   if [ -z "$MD_LINENUM" ]; then
-    lock_file "-x" $MD_FILE
     MTMP1=$( get_max_disk )
     echo "$MD_DISKID $MTMP1 0 0" >> $MD_FILE
     MD_LINENUM=$( grep -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
-    unlock_file $MD_FILE
   fi
 }
 
@@ -636,7 +623,6 @@ set_MD_LINENUM() {
 #   JHT, May 31, 2022 : created
 #
 #   Locks a file with the options provided by the first arguement
-#     and the name given by the second arguement
 #--------------------------------------------------------------------
 lock_file(){
   exec 8>>$2

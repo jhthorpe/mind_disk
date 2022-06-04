@@ -142,7 +142,7 @@ md_start() {
     MD_THISDISK=$( get_THISDISK )
     update_disk $MD_THISDISK
     if [ $? != 0 ]; then
-      echo "@mind_disk($$) Could not update disk"
+      echo "@md_start($$) Could not update disk"
       unlock_file $MD_FILE
       exit 1
     fi
@@ -150,7 +150,7 @@ md_start() {
     unlock_file $MD_FILE
 
   else 
-    echo "@mind_disk($$) md_start could not lock $MD_FILE"
+    echo "@md_start($$) md_start could not lock $MD_FILE"
     exit 1
   fi
 
@@ -234,7 +234,7 @@ md_cleanup() {
   
 #  #if this node doesn't have any jobs, clean it out 
 #  if [ $? != 0 ]; then
-#    echo "@mind_disk($$) Node $MD_DISKID has no jobs, cleaning data" 
+#    echo "@md_cleanup($$) Node $MD_DISKID has no jobs, cleaning data" 
 #    lock_file "-x -w 100" $MD_FILE 
 #    if [ $? == 0 ]; then
 #      reset_quota 
@@ -344,10 +344,10 @@ update_quota(){
   NEWQUOTA=$( bc -l <<< "$QUOTA+$RES" ) 
   if (( $( bc -l <<< "$NEWQUOTA < 0") )); then NEWQUOTA=0; fi
   if (( $( bc -l <<< "$MDISK < $NEWQUOTA" ) )); then
-    echo "@mind_disk($$) ERROR ERROR ERROR"
-    echo "@mind_disk($$) There is insufficent disk on $HOST for quota"
-    echo "@mind_disk($$) MAXDISK : $MDISK"
-    echo "@mind_disk($$) MYQUOTA : $NEWQUOTA"
+    echo "@md_update_quota($$) ERROR ERROR ERROR"
+    echo "@md_update_quota($$) There is insufficent disk on $HOST for quota"
+    echo "@md_update_quota($$) MAXDISK : $MDISK"
+    echo "@md_update_quota($$) MYQUOTA : $NEWQUOTA"
     return 1  
   fi
 
@@ -410,10 +410,10 @@ update_disk(){
   #check if the current disk usage is above quota
   NEWDISK=$( get_THISDISK )
   if (( $( bc -l <<< "$MD_THISQUOTA < $NEWDISK" ) )); then
-    echo "@mind_disk($$) ERROR ERROR ERROR"
-    echo "@mind_disk($$) This process has exceeded it's disk quota"
-    echo "@mind_disk($$) DISK USAGE: $NEWDISK"
-    echo "@mind_disk($$) QUOTA : $MD_THISQUOTA"
+    echo "@md_update_disk($$) ERROR ERROR ERROR"
+    echo "@md_update_disk($$) This process has exceeded it's disk quota"
+    echo "@md_update_disk($$) DISK USAGE: $NEWDISK"
+    echo "@md_update_disk($$) QUOTA : $MD_THISQUOTA"
     return 1  
   fi
 
@@ -442,10 +442,10 @@ check_disk(){
   #check if the current disk usage is above quota
   MD_THISDISK=$( get_THISDISK )
   if (( $( bc -l <<< "$MD_THISQUOTA < $NEWDISK" ) )); then
-    echo "@mind_disk($$) ERROR ERROR ERROR"
-    echo "@mind_disk($$) This process has exceeded it's disk quota"
-    echo "@mind_disk($$) DISK USAGE: $MD_THISDISK"
-    echo "@mind_disk($$) QUOTA : $MD_THISQUOTA"
+    echo "@md_check_disk($$) ERROR ERROR ERROR"
+    echo "@md_check_disk($$) This process has exceeded it's disk quota"
+    echo "@md_check_disk($$) DISK USAGE: $MD_THISDISK"
+    echo "@md_check_disk($$) QUOTA : $MD_THISQUOTA"
     exit 1  
   fi
 
@@ -480,7 +480,7 @@ proc_df() {
   elif [ "$UNIT" == "K" ]; then
     CONV="0.000001"
   else
-    echo "@mind_disk($$) Bad unit in proc_df input" >&2
+    echo "@md_proc_df($$) Bad unit in proc_df input" >&2
     exit 1;
   fi
   DISK=$( bc -l <<< "$CONV*$DISK" ) #adjust DISK to GB 
@@ -554,27 +554,28 @@ set_MD_DISKID() {
   #get mount
   MOUNT=$( df -h . | tail -1 | xargs | cut -f 6 -d ' ' )
 
-  echo "@mind_disk($$) Host is $HOST"
-  echo "@mind_disk($$) Mount is $MOUNT"
+  echo "@md_set_MD_DISKID($$) Host is $HOST"
+  echo "@md_set_MD_DISKID($$) Mount is $MOUNT"
 
   if [ "${MOUNT::3}" == "/sc" ]; then
-    echo "@mind_disk($$) This is scratch disk on tmpdir"
+    echo "@md_set_MD_DISKID($$) This is scratch disk on tmpdir"
     MD_DISKID="${HOST::-6}"
 
   elif [ "${MOUNT::3}" == "/bl" ]; then
-    echo "@mind_disk($$) This is scratch disk on /blue"
+    echo "@md_set_MD_DISKID($$) This is scratch disk on /blue"
     MD_DISKID="BLUE"
 
   elif [ "${MOUNT::3}" == "/re" ]; then
-    echo "@mind_disk($$) This is scratch disk on /red"
+    echo "@md_set_MD_DISKID($$) This is scratch disk on /red"
     MD_DISKID="RED"
 
   elif [ "${MOUNT::3}" == "/ho" ]; then
+    echo "@md_set_MD_DISKID($$) This is scratch disk on /home"
     MD_DISKID="HOME"
 
   else
-    echo "@mind_disk($$) ERROR ERROR ERROR"
-    echo "@mind_disk($$) Bad Mount or Host in set_MD_DISKID"
+    echo "@md_set_MD_DISKID($$) ERROR ERROR ERROR"
+    echo "@md_set_MD_DISKID($$) Bad Mount or Host in set_MD_DISKID"
     exit 1
 
   fi
@@ -593,7 +594,7 @@ init_MD_FILE() {
 
   #check the file exists, and if not, exist it
   if [ ! -f "$MD_FILE" ]; then
-    echo "@mind_disk($$) $MD_FILE does not exist, creating"
+    echo "@md_init_MD_FILE($$) $MD_FILE does not exist, creating"
     mkdir -p $MD_PATH
     echo "DISKID  MAXDISK  GQUOTA  GUSAGE" > $MD_FILE
   fi

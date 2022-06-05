@@ -124,25 +124,36 @@ md_start() {
 
   #initialize the diskid variable
   set_MD_DISKID
+  if [ $? != 0 ]; then
+    echo "@md_start($$) bad output from set_MD_DISKID"
+    exit 1
+  fi
   
   #initialize the diskquota file
-  lock_file "-x" $MD_FILE 
+  lock_file "-x -w 100" $MD_FILE 
   if [ $? == 0 ]; then
     init_MD_FILE
+    if [ $? != 0 ]; then 
+      echo "@md_start($$) bad output from md_init_MD_FILE"
+      exit 1
+    fi
+
     set_MD_LINENUM
+    if [ $? != 0 ]; then 
+      echo "@md_start($$) bad output from md_set_MD_LINENUM"
+      exit 1
+    fi
 
     update_quota $MD_THISQUOTA 
     if [ $? != 0 ]; then
       unlock_file $MD_FILE 
+      echo "@mg_start($$) md_update_quota exited with error"
       $FAIL_CMD
       exit 1
     fi
 
     #get current disk usage
-    MD_THISDISK=$( get_THISDISK )
-    update_disk $MD_THISDISK
     if [ $? != 0 ]; then
-      echo "@md_start($$) Could not update disk"
       unlock_file $MD_FILE
       exit 1
     fi
@@ -153,6 +164,14 @@ md_start() {
     echo "@md_start($$) md_start could not lock $MD_FILE"
     exit 1
   fi
+
+  check_disk 
+  if [ $? != 0 ]; then
+    echo "@md_start($$) Could not update disk"
+    exit
+  fi    
+
+
 
 }
 
@@ -180,8 +199,11 @@ md_end() {
   MD_THISDISK=$( get_THISDISK )
   lock_file "-x -w 100" $MD_FILE 
   if [ $? == 0 ]; then
-    update_disk $MD_THISDISK
     update_quota "-$MD_THISQUOTA" 
+    if [ $? != 0 ]; then
+      echo "@md_end($$) update_quota failed "
+      return 1
+    fi
     unlock_file $MD_FILE 
   fi
 
@@ -194,9 +216,8 @@ md_end() {
 # md_cleanup
 #   JHT, June 2, 2022 : created
 #
-#   Using $MD_DISKID, checks the group's slurm usage. If this node
-#   is not currently in use, empty the quotas and disk in $MD_FILE
-#   for this entry
+#   Using $MD_DISKID, checks the group's slurm usage for a 
+#   current node 
 #--------------------------------------------------------------------
 md_cleanup() {
   #don't do cleanup on HOME,BLUE, or RED
@@ -207,23 +228,22 @@ md_cleanup() {
   #Check if compute node has any jobs
   JOBS=( $( squeue -A johnstanton -w "$MD_DISKID" -o "%.18i" | xargs ) )
 
-  #if there are jobs to check on
-  if [ $? == 0 ]; then
+  #if there are no active jobs on the node, clean this line
+  if [ $? != 0 ]; then
     NEWQUOTA=0
-    NEWDISK=0
    
-    len=${#JOBS[@]}
-    for (( i=1; i<$len ; i++)); do
-      if [ "${JOBS[$i]}" == "$SLURM_JOB_ID" ]; then continue; fi
-      THATQUOTA=$( head -n 1 "/scratch/local/${JOBS[$i]}/mdquota.txt" )
-      THATDISK=$( head -n 1 "/scratch/local/${JOBS[$i]}/mddisk.txt" ) 
-      NEWQUOTA=$( bc -l <<< "$NEWQUOTA + $THATQUOTA" )
-      NEWDISK=$( bc -l <<< "$NEWDISK + $THATDISK" )
-    done
+#    len=${#JOBS[@]}
+#    for (( i=1; i<$len ; i++)); do
+#      if [ "${JOBS[$i]}" == "$SLURM_JOB_ID" ]; then continue; fi
+#      THATQUOTA=$( head -n 1 "/scratch/local/${JOBS[$i]}/mdquota.txt" )
+#      THATDISK=$( head -n 1 "/scratch/local/${JOBS[$i]}/mddisk.txt" ) 
+#      NEWQUOTA=$( bc -l <<< "$NEWQUOTA + $THATQUOTA" )
+#      NEWDISK=$( bc -l <<< "$NEWDISK + $THATDISK" )
+#    done
 
     lock_file "-x -w 100" $MD_FILE
     if [ $? == 0 ]; then
-      set_quota_disk $NEWQUOTA $NEWDISK
+      set_quota 0 #set to an empty node  
       unlock_file $MD_FILE
     fi
 
@@ -275,17 +295,16 @@ disk_manager() {
   do
     #check if the job is finished
     if [ "$( get_pid_start_time $PID )" != "$TME" ]; then
-      lock_file "-x -w $INC" $MD_FILE
-      if [ $? == 0 ]; then 
-        update_disk $MD_THISDISK
-        unlock_file $MD_FILE
-      fi
       return 0
     fi
 
     #check if we are out of disk
     # this will call exit if we are out of disk
     check_disk 
+    if [ $? != 0 ]; then
+      echo "@md_disk_manager($$) md_check_disk failed"
+      exit 1
+    fi
 
     #counter. Cancel after 1 month 
     counter=$((counter+1))
@@ -317,12 +336,19 @@ disk_manager() {
 update_quota(){
   local RES=$1
 
+  echo "@update_quota($$) linenum is $MD_LINENUM"
+
   #Get current line parameters
   STR=$( sed -n "$MD_LINENUM"p $MD_FILE | xargs )
+  if [ $? != 0 ]; then
+    echo "@md_update_quota($$) bad arguments from line $MD_LINENUM in $MD_FILE"
+    return 1 
+  fi
+  echo "@update_quota($$) line read was $MD_LINENUM"
+
   HOST=$( cut -f 1 -d ' ' <<< $STR )
   MDISK=$( cut -f 2 -d ' ' <<< $STR )
   QUOTA=$( cut -f 3 -d ' ' <<< $STR )
-  DUSED=$( cut -f 4 -d ' ' <<< $STR )
 
   #check the quota
   NEWQUOTA=$( bc -l <<< "$QUOTA+$RES" ) 
@@ -335,15 +361,13 @@ update_quota(){
     return 1  
   fi
 
-  echo $NEWQUOTA > mdquota.txt
-
   #update the line 
-  sed -i "$MD_LINENUM"s/".*"/"$HOST $MDISK $NEWQUOTA $DUSED"/ $MD_FILE
+  sed -i "$MD_LINENUM"s/".*"/"$HOST $MDISK $NEWQUOTA"/ $MD_FILE
 
 }
 
 #--------------------------------------------------------------------
-# set_quota_disk
+# set_quota
 #   JHT, June 2, 2022 : created
 #
 #   Sets quota and disk in $MD_LINENUM without checking 
@@ -351,64 +375,23 @@ update_quota(){
 #
 #   INPUT
 #   $1  :   quota to input
-#   $2  :   disk to input
 #
 #   ENVIROMENT (must be preset)
 #   $MD_FILE    : path to file to edit
 #   $MD_LINENUM : line number of this entry in $MD_FILE
 #--------------------------------------------------------------------
-set_quota_disk(){
+set_quota(){
+
   #Get current line parameters
   STR=$( sed -n "$MD_LINENUM"p $MD_FILE | xargs )
+  if [ $? != 0 ]; then
+    echo "@md_set_quota($$) bad xargs from $MD_LINENUM in $MD_FILE"
+    return 1
+  fi
   HOST=$( cut -f 1 -d ' ' <<< $STR )
-  MDISK=$( cut -f 2 -d ' ' <<< $STR )
 
   #update the line 
-  sed -i "$MD_LINENUM"s/".*"/"$HOST $MDISK $1 $2"/ $MD_FILE
-
-}
-
-#--------------------------------------------------------------------
-# update_disk
-#   JHT, June 1, 2022 : created
-#   
-#   Determines current disk usage of directory, and updates the value 
-#   in 
-#
-#   INPUT
-#   $1  : old disk usage from get_THISDISK 
-#
-#   ENVIROMENT (must be preset)
-#   $MD_FILE : path to file to edit
-#--------------------------------------------------------------------
-update_disk(){
-  local OLDDISK=$1
-  
-  #Get current line parameters
-  STR=$( sed -n "$MD_LINENUM"p $MD_FILE | xargs )
-  HOST=$( cut -f 1 -d ' ' <<< $STR )
-  MDISK=$( cut -f 2 -d ' ' <<< $STR )
-  QUOTA=$( cut -f 3 -d ' ' <<< $STR )
-  DUSED=$( cut -f 4 -d ' ' <<< $STR )
-
-  #check if the current disk usage is above quota
-  NEWDISK=$( get_THISDISK )
-  if (( $( bc -l <<< "$MD_THISQUOTA < $NEWDISK" ) )); then
-    echo "@md_update_disk($$) ERROR ERROR ERROR"
-    echo "@md_update_disk($$) This process has exceeded it's disk quota"
-    echo "@md_update_disk($$) DISK USAGE: $NEWDISK"
-    echo "@md_update_disk($$) QUOTA : $MD_THISQUOTA"
-    return 1  
-  fi
-
-  #update values
-  DUSED=$( bc -l <<< "$DUSED - $OLDDISK + $NEWDISK" )
-  MD_THISDISK=$NEWDISK
-
-  echo "$MD_THISDISK" > mddisk.txt
-
-  #update the file
-  sed -i "$MD_LINENUM"s/".*"/"$HOST $MDISK $QUOTA $DUSED"/ $MD_FILE
+  sed -i "$MD_LINENUM"s/".*"/"$HOST $MDISK $1"/ $MD_FILE
 
 }
 
@@ -430,10 +413,8 @@ check_disk(){
     echo "@md_check_disk($$) This process has exceeded it's disk quota"
     echo "@md_check_disk($$) DISK USAGE: $MD_THISDISK"
     echo "@md_check_disk($$) QUOTA : $MD_THISQUOTA"
-    exit 1  
+    return 1    
   fi
-
-  echo "$MD_THISDISK" > mddisk.txt
 
 }
 
@@ -479,7 +460,12 @@ proc_df() {
 #--------------------------------------------------------------------
 get_avl_disk() {
   AVL_DISK=$( proc_df `df -h . | tail -1 |  xargs | cut -f 4 -d " "`)
-  echo "$AVL_DISK"
+  if [ $? == 0 ]; then
+    echo "$AVL_DISK"
+  else 
+    echo "@md_get_avl_disk($$) bad output from df"
+    return 1
+  fi
 }
 
 #--------------------------------------------------------------------
@@ -490,7 +476,12 @@ get_avl_disk() {
 #--------------------------------------------------------------------
 get_max_disk() {
   MAX_DISK=$( proc_df `df -h . | tail -1 |  xargs | cut -f 2 -d " "`)
-  echo "$MAX_DISK"
+  if [ $? == 0 ]; then
+    echo "$MAX_DISK"
+  else 
+    echo "@md_get_max_disk($$) bad output from df"
+    return 1
+  fi
 }
 
 #--------------------------------------------------------------------
@@ -537,6 +528,10 @@ set_MD_DISKID() {
 
   #get mount
   MOUNT=$( df -h . | tail -1 | xargs | cut -f 6 -d ' ' )
+  if [ $? != 0 ]; then
+    echo "@md_set_MD_DISKISK($$) bad mount point arguemnt"
+    return 1
+  fi
 
   echo "@md_set_MD_DISKID($$) Host is $HOST"
   echo "@md_set_MD_DISKID($$) Mount is $MOUNT"
@@ -580,7 +575,7 @@ init_MD_FILE() {
   if [ ! -f "$MD_FILE" ]; then
     echo "@md_init_MD_FILE($$) $MD_FILE does not exist, creating"
     mkdir -p $MD_PATH
-    echo "DISKID  MAXDISK  GQUOTA  GUSAGE" > $MD_FILE
+#    echo "DISKID  MAXDISK  GQUOTA  GUSAGE" > $MD_FILE
   fi
 
 }
@@ -593,14 +588,26 @@ init_MD_FILE() {
 #--------------------------------------------------------------------
 set_MD_LINENUM() {
 
-  MD_LINENUM=$( grep -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
+  MD_LINENUM=$( grep -l -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
 
   #if line is not found, add it to the file
   if [ -z "$MD_LINENUM" ]; then
     MTMP1=$( get_max_disk )
-    echo "$MD_DISKID $MTMP1 0 0" >> $MD_FILE
-    MD_LINENUM=$( grep -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
+    echo "$MD_DISKID $MTMP1 0" >> $MD_FILE
+    MD_LINENUM=$( grep -l -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
   fi
+
+  #check that LINENUM is actually a number
+  re='^[0-9]+$'
+  if ![[ $MD_LINENUM =~ $re ]]; then
+    echo "@md_set_MD_LINENUM($$) LINENUM is not a number, $MD_LINENUM"
+    return 1
+  fi
+
+  echo "@md_set_MD_LINENUM($$) LINENUM is $MD_LINENUM"
+  echo "State of the file is as follows:"
+  cat $MD_FILE
+
 }
 
 #--------------------------------------------------------------------

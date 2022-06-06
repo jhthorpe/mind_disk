@@ -121,6 +121,7 @@ md_start() {
     exit 1
   fi
   export MD_FILE="$MD_PATH/mdquota.txt"
+  echo "@md_start($$) MD_FILE is $MD_FILE"
 
   #initialize the diskid variable
   set_MD_DISKID
@@ -128,33 +129,41 @@ md_start() {
     echo "@md_start($$) bad output from set_MD_DISKID"
     exit 1
   fi
+
+  #get maxdisk variable
+  MD_MAXDISK=$( get_max_disk )
   
   #initialize the diskquota file
   lock_file "-x -w 100" $MD_FILE 
   if [ $? == 0 ]; then
+
+    #initialize the file if needed
     init_MD_FILE
     if [ $? != 0 ]; then 
       echo "@md_start($$) bad output from md_init_MD_FILE"
       exit 1
     fi
 
+    #get line number for this host
     set_MD_LINENUM
     if [ $? != 0 ]; then 
       echo "@md_start($$) bad output from md_set_MD_LINENUM"
       exit 1
     fi
 
+    #if there are no active jobs except this one, cleanup quota
+    md_cleanup 
+    if [ $? != 0 ]; then
+      echo "@md_start($$) bad output from md_cleanup"
+      exit 1
+    fi
+
+    #update the quota
     update_quota $MD_THISQUOTA 
     if [ $? != 0 ]; then
       unlock_file $MD_FILE 
       echo "@mg_start($$) md_update_quota exited with error"
       $FAIL_CMD
-      exit 1
-    fi
-
-    #get current disk usage
-    if [ $? != 0 ]; then
-      unlock_file $MD_FILE
       exit 1
     fi
 
@@ -170,8 +179,6 @@ md_start() {
     echo "@md_start($$) Could not update disk"
     exit
   fi    
-
-
 
 }
 
@@ -195,21 +202,41 @@ md_end() {
     MD_THISQUOTA="0"
   fi
 
-  #update the quota
-  MD_THISDISK=$( get_THISDISK )
-  lock_file "-x -w 100" $MD_FILE 
-  if [ $? == 0 ]; then
-    update_quota "-$MD_THISQUOTA" 
-    if [ $? != 0 ]; then
-      echo "@md_end($$) update_quota failed "
-      return 1
-    fi
-    unlock_file $MD_FILE 
+  #if $MD_FILE is empty, exit
+  if [ -z "$MD_FILE" ]; then
+    return 1
   fi
 
-  #finally, check for cleanup on this HOST
-  md_cleanup
+  #if the file exists, do end update
+  if [ -f "$MD_FILE" ]; then
 
+    #update the quota
+    lock_file "-x -w 100" $MD_FILE 
+    if [ $? == 0 ]; then
+
+      #get line number to update
+      set_MD_LINENUM
+      if [ $? != 0 ]; then
+        unlock_file $MD_FILE
+        return 1
+      fi
+ 
+      #update the quota
+      update_quota "-$MD_THISQUOTA" 
+      if [ $? != 0 ]; then
+        echo "@md_end($$) update_quota failed "
+        return 1
+      fi
+
+      #finally, check for cleanup on this HOST
+      md_cleanup
+
+      unlock_file $MD_FILE 
+    fi
+
+  else
+    return 1
+  fi
 }
 
 #--------------------------------------------------------------------
@@ -218,6 +245,8 @@ md_end() {
 #
 #   Using $MD_DISKID, checks the group's slurm usage for a 
 #   current node 
+#
+#   This assumes that the $MD_FILE has be locked prior to call
 #--------------------------------------------------------------------
 md_cleanup() {
   #don't do cleanup on HOME,BLUE, or RED
@@ -225,42 +254,26 @@ md_cleanup() {
     return 0
   fi 
 
+  #check that $MD_FILE is valid
+  if [ -z "$MD_FILE" ]; then return 1; fi
+
+  #check that $MD_DISKID is valid
+  if [ -z "$MD_DISKID" ]; then return 1; fi
+
+  #check that $MD_LINENUM is valid
+  if ( ! $( is_int $MD_LINENUM ) ); then return 1; fi
+
   #Check if compute node has any jobs
   JOBS=( $( squeue -A johnstanton -w "$MD_DISKID" -o "%.18i" | xargs ) )
 
   #if there are no active jobs on the node, clean this line
-  if [ $? != 0 ]; then
-    NEWQUOTA=0
-   
-#    len=${#JOBS[@]}
-#    for (( i=1; i<$len ; i++)); do
-#      if [ "${JOBS[$i]}" == "$SLURM_JOB_ID" ]; then continue; fi
-#      THATQUOTA=$( head -n 1 "/scratch/local/${JOBS[$i]}/mdquota.txt" )
-#      THATDISK=$( head -n 1 "/scratch/local/${JOBS[$i]}/mddisk.txt" ) 
-#      NEWQUOTA=$( bc -l <<< "$NEWQUOTA + $THATQUOTA" )
-#      NEWDISK=$( bc -l <<< "$NEWDISK + $THATDISK" )
-#    done
-
-    lock_file "-x -w 100" $MD_FILE
-    if [ $? == 0 ]; then
-      set_quota 0 #set to an empty node  
-      unlock_file $MD_FILE
-    fi
-
-  fi
+  if [ $? != 0 ]; then set_quota 0; return 0 ; fi
   
-
-  #go through jobs on node
-  
-#  #if this node doesn't have any jobs, clean it out 
-#  if [ $? != 0 ]; then
-#    echo "@md_cleanup($$) Node $MD_DISKID has no jobs, cleaning data" 
-#    lock_file "-x -w 100" $MD_FILE 
-#    if [ $? == 0 ]; then
-#      reset_quota 
-#      unlock_file $MD_FILE 
-#    fi
-#  fi
+  #if there is only one active job, and that job is ours, set quota to zero
+  if [ ${#JOBS[@]} == 2 ] && [ "${JOBS[1]}" == "$SLURM_JOB_ID" ]; then
+    set_quota 0
+    return 0
+  fi 
 
 }
 
@@ -336,7 +349,10 @@ disk_manager() {
 update_quota(){
   local RES=$1
 
-  echo "@update_quota($$) linenum is $MD_LINENUM"
+  if ( ! $(is_int $MD_LINENUM) ); then
+    echo "@md_update_quota($$) LINENUM is not a number, $MD_LINENUM"
+    return 1
+  fi
 
   #Get current line parameters
   STR=$( sed -n "$MD_LINENUM"p $MD_FILE | xargs )
@@ -344,25 +360,24 @@ update_quota(){
     echo "@md_update_quota($$) bad arguments from line $MD_LINENUM in $MD_FILE"
     return 1 
   fi
-  echo "@update_quota($$) line read was $MD_LINENUM"
 
-  HOST=$( cut -f 1 -d ' ' <<< $STR )
-  MDISK=$( cut -f 2 -d ' ' <<< $STR )
+  #HOST=$( cut -f 1 -d ' ' <<< $STR )
+  #MDISK=$( cut -f 2 -d ' ' <<< $STR )
   QUOTA=$( cut -f 3 -d ' ' <<< $STR )
 
   #check the quota
   NEWQUOTA=$( bc -l <<< "$QUOTA+$RES" ) 
   if (( $( bc -l <<< "$NEWQUOTA < 0") )); then NEWQUOTA=0; fi
-  if (( $( bc -l <<< "$MDISK < $NEWQUOTA" ) )); then
+  if (( $( bc -l <<< "$MD_MAXDISK < $NEWQUOTA" ) )); then
     echo "@md_update_quota($$) ERROR ERROR ERROR"
     echo "@md_update_quota($$) There is insufficent disk on $HOST for quota"
-    echo "@md_update_quota($$) MAXDISK : $MDISK"
+    echo "@md_update_quota($$) MAXDISK : $MD_MAXDISK"
     echo "@md_update_quota($$) MYQUOTA : $NEWQUOTA"
     return 1  
   fi
 
   #update the line 
-  sed -i "$MD_LINENUM"s/".*"/"$HOST $MDISK $NEWQUOTA"/ $MD_FILE
+  sed -i "$MD_LINENUM"s/".*"/"$MD_DISKID $MD_MAXDISK $NEWQUOTA"/ $MD_FILE
 
 }
 
@@ -381,6 +396,14 @@ update_quota(){
 #   $MD_LINENUM : line number of this entry in $MD_FILE
 #--------------------------------------------------------------------
 set_quota(){
+  
+  echo "@md_set_quota($$) linenum is $MD_LINENUM"
+
+  #check for bad linenumber
+  if ( ! $(is_int $MD_LINENUM) ); then
+    echo "@md_update_quota($$) LINENUM is not a number, $MD_LINENUM"
+    return 1
+  fi
 
   #Get current line parameters
   STR=$( sed -n "$MD_LINENUM"p $MD_FILE | xargs )
@@ -388,10 +411,10 @@ set_quota(){
     echo "@md_set_quota($$) bad xargs from $MD_LINENUM in $MD_FILE"
     return 1
   fi
-  HOST=$( cut -f 1 -d ' ' <<< $STR )
+  #HOST=$( cut -f 1 -d ' ' <<< $STR )
 
   #update the line 
-  sed -i "$MD_LINENUM"s/".*"/"$HOST $MDISK $1"/ $MD_FILE
+  sed -i "$MD_LINENUM"s/".*"/"$MD_DISKID $MD_MAXDISK $1"/ $MD_FILE
 
 }
 
@@ -405,17 +428,15 @@ set_quota(){
 #   ENVIROMENT 
 #--------------------------------------------------------------------
 check_disk(){
-  
   #check if the current disk usage is above quota
   MD_THISDISK=$( get_THISDISK )
-  if (( $( bc -l <<< "$MD_THISQUOTA < $NEWDISK" ) )); then
+  if (( $( bc -l <<< "$MD_THISQUOTA < $MD_THISDISK" ) )); then
     echo "@md_check_disk($$) ERROR ERROR ERROR"
     echo "@md_check_disk($$) This process has exceeded it's disk quota"
     echo "@md_check_disk($$) DISK USAGE: $MD_THISDISK"
     echo "@md_check_disk($$) QUOTA : $MD_THISQUOTA"
     return 1    
   fi
-
 }
 
 
@@ -588,25 +609,25 @@ init_MD_FILE() {
 #--------------------------------------------------------------------
 set_MD_LINENUM() {
 
-  MD_LINENUM=$( grep -l -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
+  MD_LINENUM=$( grep --text -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
 
   #if line is not found, add it to the file
   if [ -z "$MD_LINENUM" ]; then
+    echo "@md_set_MD_LINENUM($$) DISKID not found, creating entry"
     MTMP1=$( get_max_disk )
     echo "$MD_DISKID $MTMP1 0" >> $MD_FILE
-    MD_LINENUM=$( grep -l -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
+    MD_LINENUM=$( grep --text -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
   fi
 
   #check that LINENUM is actually a number
-  re='^[0-9]+$'
-  if ![[ $MD_LINENUM =~ $re ]]; then
+  if ( ! $( is_int $MD_LINENUM ) ); then
     echo "@md_set_MD_LINENUM($$) LINENUM is not a number, $MD_LINENUM"
     return 1
   fi
 
-  echo "@md_set_MD_LINENUM($$) LINENUM is $MD_LINENUM"
-  echo "State of the file is as follows:"
-  cat $MD_FILE
+  #echo "@md_set_MD_LINENUM($$) LINENUM is $MD_LINENUM"
+  #echo "State of the file is as follows:"
+  #cat $MD_FILE
 
 }
 
@@ -632,4 +653,17 @@ unlock_file(){
   flock -u 8
 }
 
+#--------------------------------------------------------------------
+# is_int
+#   JHT, June 6, 2022 : created
+#   
+#   check that an input is an integer number
+#--------------------------------------------------------------------
+is_int() {
+  re='^[0-9]+$'
+  if ! [[ $1 =~ $re ]]; then
+    return 1
+  fi
+  return 0
+}
 

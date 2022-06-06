@@ -225,6 +225,7 @@ md_end() {
       update_quota "-$MD_THISQUOTA" 
       if [ $? != 0 ]; then
         echo "@md_end($$) update_quota failed "
+        unlock_file $MD_FILE
         return 1
       fi
 
@@ -613,7 +614,7 @@ set_MD_LINENUM() {
 
   #if line is not found, add it to the file
   if [ -z "$MD_LINENUM" ]; then
-    echo "@md_set_MD_LINENUM($$) DISKID not found, creating entry"
+    echo "@md_set_MD_LINENUM($$) DISKID $MD_DISKID not found, creating entry"
     MTMP1=$( get_max_disk )
     echo "$MD_DISKID $MTMP1 0" >> $MD_FILE
     MD_LINENUM=$( grep --text -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
@@ -624,10 +625,6 @@ set_MD_LINENUM() {
     echo "@md_set_MD_LINENUM($$) LINENUM is not a number, $MD_LINENUM"
     return 1
   fi
-
-  #echo "@md_set_MD_LINENUM($$) LINENUM is $MD_LINENUM"
-  #echo "State of the file is as follows:"
-  #cat $MD_FILE
 
 }
 

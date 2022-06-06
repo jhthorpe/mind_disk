@@ -27,7 +27,7 @@ cd $SLURM_TMPDIR
 #   MD_PATH is an enviroment variable that points to the directory 
 #   where mind_disk can generate temporary files
 source /home/james.thorpe/bin/mind_disk/bash/mind_disk.sh; trap md_kill EXIT
-export MD_PATH=~james.thorpe/mdquota
+export MD_PATH=/blue/johnstanton/james.thorpe/mdquota
 
 #-----------------------------------------------------------------------
 # STEP 2. initialize the md enviroment. 

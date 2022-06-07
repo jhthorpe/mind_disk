@@ -52,7 +52,7 @@
 #
 #--------------------------------------------------------------------
 md_exec() {
-  echo "@md_exec ($$)"
+  echo "@md_exec($$)"
   local CMD=$1
   local INC=$2
 
@@ -104,7 +104,7 @@ md_exec() {
 #
 #--------------------------------------------------------------------
 md_start() {
-  echo "@md_start ($$)" 
+  echo "@md_start($$)" 
   local FAIL_CMD=$2
 
   #initialize the THISQUOTA variable
@@ -121,7 +121,6 @@ md_start() {
     exit 1
   fi
   export MD_FILE="$MD_PATH/mdquota.txt"
-  echo "@md_start($$) MD_FILE is $MD_FILE"
 
   #initialize the diskid variable
   set_MD_DISKID
@@ -196,7 +195,7 @@ md_start() {
 #
 #--------------------------------------------------------------------
 md_end() {
-  echo "@md_end ($$)" 
+  echo "@md_end($$)" 
   #check for empty THISQUOTA
   if [ -z "$MD_THISQUOTA" ]; then 
     MD_THISQUOTA="0"
@@ -317,6 +316,7 @@ disk_manager() {
     check_disk 
     if [ $? != 0 ]; then
       echo "@md_disk_manager($$) md_check_disk failed"
+      kill -9 $PID
       exit 1
     fi
 
@@ -398,7 +398,7 @@ update_quota(){
 #--------------------------------------------------------------------
 set_quota(){
   
-  echo "@md_set_quota($$) linenum is $MD_LINENUM"
+#  echo "@md_set_quota($$) linenum is $MD_LINENUM"
 
   #check for bad linenumber
   if ( ! $(is_int $MD_LINENUM) ); then
@@ -555,8 +555,8 @@ set_MD_DISKID() {
     return 1
   fi
 
-  echo "@md_set_MD_DISKID($$) Host is $HOST"
-  echo "@md_set_MD_DISKID($$) Mount is $MOUNT"
+#  echo "@md_set_MD_DISKID($$) Host is $HOST"
+#  echo "@md_set_MD_DISKID($$) Mount is $MOUNT"
 
   if [ "${MOUNT::3}" == "/sc" ]; then
     echo "@md_set_MD_DISKID($$) This is scratch disk on tmpdir"
@@ -614,10 +614,12 @@ set_MD_LINENUM() {
 
   #if line is not found, add it to the file
   if [ -z "$MD_LINENUM" ]; then
-    echo "@md_set_MD_LINENUM($$) DISKID $MD_DISKID not found, creating entry"
     MTMP1=$( get_max_disk )
     echo "$MD_DISKID $MTMP1 0" >> $MD_FILE
     MD_LINENUM=$( grep --text -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
+    echo "@md_set_MD_LINENUM($$) $MD_DISKID created on line $MD_LINENUM"
+  else
+    echo "@md_set_MD_LINENUM($$) $MD_DISKID found on line $MD_LINENUM"
   fi
 
   #check that LINENUM is actually a number

@@ -82,6 +82,52 @@ md_exec() {
  
 }
 
+#--------------------------------------------------------------------
+# md_prune
+#   JHT, June 7, 2022 : created
+#
+#   cleanup redundent lines in the $MD_FILE
+#--------------------------------------------------------------------
+md_prune() {
+  echo "@md_prune ($$)"
+
+  #check MD_FILE is good
+  if [ -z "$MD_FILE" ]; then
+    echo "@md_prune($$) MD_FILE variable was empty"
+    return 1  
+  fi
+  
+  #read in the file
+  mapfile -t FILE < "$MD_FILE"
+  if [ $? != 0 ]; then
+    echo "@md_prune($$) error from mapfile"
+  fi
+
+  #go through the first arguement of each line. Check it against
+  # the lines before it. If match, do not add this line to the good
+  # line list
+  GOODLINE=( )
+  GOODARG=( )
+  for (( i=0; i<${#FILE[@]}; i++ )); do
+    FLAG=0
+    ARG=$( echo "${FILE[$i]}" | xargs |  cut -f 1 -d " " )
+    for (( j=0; j<${#GOODARG[@]}; j++ )); do
+#      if [ $ARG == ${GOODARG[$j]} ]; then FLAG=1; echo "$ARG is repeated"; break; fi 
+      if [ $ARG == ${GOODARG[$j]} ]; then FLAG=1; break; fi 
+    done
+    if [ $FLAG == 0 ]; then
+      GOODARG+=("$ARG")
+      GOODLINE+=("$i")
+    fi
+  done
+
+  #write out the good lines to the file
+  echo -n "" > $MD_FILE
+  for line in ${GOODLINE[@]}; do
+    echo "${FILE[$line]}" >> $MD_FILE 
+  done
+
+}
 
 #--------------------------------------------------------------------
 # md_start
@@ -228,8 +274,11 @@ md_end() {
         return 1
       fi
 
-      #finally, check for cleanup on this HOST
+      #do cleanup on this host if no active jobs
       md_cleanup
+
+      #finally, erase duplicate hosts in the file
+      md_prune
 
       unlock_file $MD_FILE 
     fi

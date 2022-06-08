@@ -113,7 +113,7 @@ md_prune() {
     ARG=$( echo "${FILE[$i]}" | xargs |  cut -f 1 -d " " )
     for (( j=0; j<${#GOODARG[@]}; j++ )); do
 #      if [ $ARG == ${GOODARG[$j]} ]; then FLAG=1; echo "$ARG is repeated"; break; fi 
-      if [ $ARG == ${GOODARG[$j]} ]; then FLAG=1; break; fi 
+      if [ "$ARG" == "${GOODARG[$j]}" ]; then FLAG=1; break; fi 
     done
     if [ $FLAG == 0 ]; then
       GOODARG+=("$ARG")
@@ -659,13 +659,13 @@ init_MD_FILE() {
 #--------------------------------------------------------------------
 set_MD_LINENUM() {
 
-  MD_LINENUM=$( grep --text -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
+  MD_LINENUM=$( grep --text -m 1 -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
 
   #if line is not found, add it to the file
   if [ -z "$MD_LINENUM" ]; then
     MTMP1=$( get_max_disk )
     echo "$MD_DISKID $MTMP1 0" >> $MD_FILE
-    MD_LINENUM=$( grep --text -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
+    MD_LINENUM=$( grep --text -m 1 -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
     echo "@md_set_MD_LINENUM($$) $MD_DISKID created on line $MD_LINENUM"
   else
     echo "@md_set_MD_LINENUM($$) $MD_DISKID found on line $MD_LINENUM"

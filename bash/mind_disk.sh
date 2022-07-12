@@ -163,8 +163,8 @@ md_start() {
   else
     MD_THISQUOTA=$( proc_df "$1" ) 
   fi
-  if [ ! $( is_int $MD_THISQUOTA ) ]; then
-    echo "@md_start($$) bad MD_THISQUOTA"
+  if [ $? -ne 0 ]; then
+    echo "@md_start($$) bad output from setting THISQUOTA"
     exit 1
   fi 
 
@@ -185,6 +185,10 @@ md_start() {
 
   #get maxdisk variable
   MD_MAXDISK=$( get_max_disk )
+  if [ $? -ne 0 ]; then
+    echo "@md_start($$) bad output from get_max_disk" 
+    exit 1
+  fi
   
   #initialize the diskquota file
   lock_file "-x -w 100" $MD_FILE 
@@ -266,10 +270,21 @@ md_end() {
   if [ -z "$MD_FILE" ]; then
     return 1
   fi
-  if [ ! $( is_int $MD_THISQUOTA ) ]; then
-    echo "@md_start($$) bad MD_THISQUOTA"
+
+  #initialize the diskid variable
+  set_MD_DISKID
+  if [ $? != 0 ]; then
+    echo "@md_end($$) bad output from set_MD_DISKID"
     return 1
-  fi 
+  fi
+
+  #get maxdisk variable
+  MD_MAXDISK=$( get_max_disk )
+  if [ $? -ne 0 ]; then
+    echo "@md_end($$) bad output from get_max_disk" 
+    return 1
+  fi
+
 
   #if the file exists, do end update
   if [ -f "$MD_FILE" ]; then

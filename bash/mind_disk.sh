@@ -112,8 +112,9 @@ md_prune() {
     FLAG=0
     ARG=$( echo "${FILE[$i]}" | xargs |  cut -f 1 -d " " )
     for (( j=0; j<${#GOODARG[@]}; j++ )); do
-#      if [ $ARG == ${GOODARG[$j]} ]; then FLAG=1; echo "$ARG is repeated"; break; fi 
-      if [ "$ARG" == "${GOODARG[$j]}" ]; then FLAG=1; break; fi 
+#JHT extra printing here
+      if [ $ARG == ${GOODARG[$j]} ]; then FLAG=1; echo "$ARG is repeated"; break; fi 
+#      if [ "$ARG" == "${GOODARG[$j]}" ]; then FLAG=1; break; fi 
     done
     if [ $FLAG == 0 ]; then
       GOODARG+=("$ARG")
@@ -126,6 +127,9 @@ md_prune() {
   for line in ${GOODLINE[@]}; do
     echo "${FILE[$line]}" >> $MD_FILE 
   done
+
+  echo "JHT PRINTING MD_FILE... SORRY"
+  cat $MD_FILE
 
 }
 
@@ -193,6 +197,13 @@ md_start() {
     set_MD_LINENUM
     if [ $? != 0 ]; then 
       echo "@md_start($$) bad output from md_set_MD_LINENUM"
+      exit 1
+    fi
+
+    #check if the line has the correct number of args
+    md_checkline
+    if [ $? != 0 ]; then 
+      echo "@md_start($$) bad output from md_checkline"
       exit 1
     fi
 
@@ -327,6 +338,24 @@ md_cleanup() {
 }
 
 #--------------------------------------------------------------------
+# md_checkline
+#   JHT, July 12, 2022 : created
+#
+#   Checks that the line in $MD_FILE has the right nubmer of arguements 
+#--------------------------------------------------------------------
+md_checkline() {
+  #check that $MD_FILE is valid
+  if [ -z "$MD_FILE" ]; then return 1; fi
+
+  #check that $MD_DISKID is valid
+  if [ -z "$MD_DISKID" ]; then return 1; fi
+
+  #check that $MD_LINENUM is valid
+  if ( ! $( is_int $MD_LINENUM ) ); then return 1; fi
+
+}
+
+#--------------------------------------------------------------------
 # md_kill
 #   JHT, June 2, 2022 : created
 #
@@ -398,6 +427,8 @@ disk_manager() {
 #--------------------------------------------------------------------
 update_quota(){
   local RES=$1
+  
+  echo "@md_update_quota($$) updating quota in MD_FILE"
 
   if ( ! $(is_int $MD_LINENUM) ); then
     echo "@md_update_quota($$) LINENUM is not a number, $MD_LINENUM"
@@ -410,10 +441,25 @@ update_quota(){
     echo "@md_update_quota($$) bad arguments from line $MD_LINENUM in $MD_FILE"
     return 1 
   fi
+  
+  #check that we have 3 parameters
+  NUM=`wc -w <<< "$STR"`
+  if [ $NUM -ne 3 ]; then
+    echo "@md_update_quota($$) Not enough variables on $MD_LINENUM in $MD_FILE"
+    set_quota 0
+    echo "@md_update_quota($$) Setting to 0 G and exiting"
+    return 1
+  fi
+  
 
   #HOST=$( cut -f 1 -d ' ' <<< $STR )
   #MDISK=$( cut -f 2 -d ' ' <<< $STR )
   QUOTA=$( cut -f 3 -d ' ' <<< $STR )
+  if [ $? -ne 0 ]; then
+    echo "@md_update_quota($$) ERROR ERROR ERROR"
+    echo "md_update_quota($$) could not cut third variable from line"
+    return 1
+  fi
 
   #check the quota
   NEWQUOTA=$( bc -l <<< "$QUOTA+$RES" ) 
@@ -505,6 +551,10 @@ proc_df() {
   local DISK=$1
   UNIT=${DISK: -1} #get unit character
   DISK=${DISK::-1} #trim unit character
+
+  echo "DISK UNIT IS $UNIT" >&2
+
+  #echo "JHT : UNIT IS $UNIT"
   if [ "$UNIT" ==  "T" ]; then
     CONV="1000"
   elif [ "$UNIT" == "G" ]; then
@@ -661,6 +711,9 @@ set_MD_LINENUM() {
 
   MD_LINENUM=$( grep --text -m 1 -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
 
+  echo "JHT LINENUM hello 1"
+
+
   #if line is not found, add it to the file
   if [ -z "$MD_LINENUM" ]; then
     MTMP1=$( get_max_disk )
@@ -671,12 +724,17 @@ set_MD_LINENUM() {
     echo "@md_set_MD_LINENUM($$) $MD_DISKID found on line $MD_LINENUM"
   fi
 
+  echo "JHT LINENUM hello 2"
   #check that LINENUM is actually a number
   if ( ! $( is_int $MD_LINENUM ) ); then
-    echo "@md_set_MD_LINENUM($$) LINENUM is not a number, $MD_LINENUM"
+    echo "JHT LINENUM hello 3"
+    echo "@md_set_MD_LINENUM($$) LINENUM is not a number: $MD_LINENUM"
+    echo "The current state of MD_FILE is listed below"
+    cat $MD_FILE
     return 1
   fi
 
+  echo "JHT LINENUM last hello"
 }
 
 #--------------------------------------------------------------------

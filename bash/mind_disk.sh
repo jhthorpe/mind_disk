@@ -163,6 +163,10 @@ md_start() {
   else
     MD_THISQUOTA=$( proc_df "$1" ) 
   fi
+  if [ ! $( is_int $MD_THISQUOTA ) ]; then
+    echo "@md_start($$) bad MD_THISQUOTA"
+    exit 1
+  fi 
 
   #check the quotafile enviromental variable exists and is not blank
   if [ -z "$MD_PATH" ]; then
@@ -262,6 +266,10 @@ md_end() {
   if [ -z "$MD_FILE" ]; then
     return 1
   fi
+  if [ ! $( is_int $MD_THISQUOTA ) ]; then
+    echo "@md_start($$) bad MD_THISQUOTA"
+    return 1
+  fi 
 
   #if the file exists, do end update
   if [ -f "$MD_FILE" ]; then
@@ -618,7 +626,13 @@ get_max_disk() {
 #           
 #--------------------------------------------------------------------
 get_THISDISK () {
-  echo "$( proc_df `du -sh . | xargs | cut -f 1 -d " " ` )"
+  THISDISK="$( proc_df `du -sh . | xargs | cut -f 1 -d " " ` )"
+  if [ $? == 0 ]; then
+    echo "$THISDISK"
+  else 
+    echo "@md_get_THISDISK($$) bad output from df"
+    return 1
+  fi
 }
 
 

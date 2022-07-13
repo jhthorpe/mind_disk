@@ -575,9 +575,6 @@ proc_df() {
   UNIT=${DISK: -1} #get unit character
   DISK=${DISK::-1} #trim unit character
 
-  echo "DISK UNIT IS $UNIT" >&2
-
-  #echo "JHT : UNIT IS $UNIT"
   if [ "$UNIT" ==  "T" ]; then
     CONV="1000"
   elif [ "$UNIT" == "G" ]; then
@@ -740,8 +737,6 @@ set_MD_LINENUM() {
 
   MD_LINENUM=$( grep --text -m 1 -n "$MD_DISKID" $MD_FILE | cut -f1 -d: )
 
-  echo "JHT LINENUM hello 1"
-
 
   #if line is not found, add it to the file
   if [ -z "$MD_LINENUM" ]; then
@@ -753,17 +748,14 @@ set_MD_LINENUM() {
     echo "@md_set_MD_LINENUM($$) $MD_DISKID found on line $MD_LINENUM"
   fi
 
-  echo "JHT LINENUM hello 2"
   #check that LINENUM is actually a number
   if ( ! $( is_int $MD_LINENUM ) ); then
-    echo "JHT LINENUM hello 3"
     echo "@md_set_MD_LINENUM($$) LINENUM is not a number: $MD_LINENUM"
     echo "The current state of MD_FILE is listed below"
     cat $MD_FILE
     return 1
   fi
 
-  echo "JHT LINENUM last hello"
 }
 
 #--------------------------------------------------------------------

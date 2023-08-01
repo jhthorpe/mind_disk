@@ -113,7 +113,7 @@ md_prune() {
     ARG=$( echo "${FILE[$i]}" | xargs |  cut -f 1 -d " " )
     for (( j=0; j<${#GOODARG[@]}; j++ )); do
 #JHT extra printing here
-      if [ $ARG == ${GOODARG[$j]} ]; then FLAG=1; echo "$ARG is repeated"; break; fi 
+      if [ $ARG == ${GOODARG[$j]} ]; then FLAG=1; echo "$ARG is repeated lines $i,${GOODLINE[$j]}" ; break; fi 
 #      if [ "$ARG" == "${GOODARG[$j]}" ]; then FLAG=1; break; fi 
     done
     if [ $FLAG == 0 ]; then
@@ -128,8 +128,8 @@ md_prune() {
     echo "${FILE[$line]}" >> $MD_FILE 
   done
 
-  echo "JHT PRINTING MD_FILE... SORRY"
-  cat $MD_FILE
+  #echo "JHT PRINTING MD_FILE... SORRY"
+  #cat $MD_FILE
 
 }
 
@@ -226,7 +226,7 @@ md_start() {
     update_quota $MD_THISQUOTA 
     if [ $? != 0 ]; then
       unlock_file $MD_FILE 
-      echo "@mg_start($$) md_update_quota exited with error"
+      echo "@md_start($$) md_update_quota exited with error"
       $FAIL_CMD
       exit 1
     fi
@@ -451,7 +451,7 @@ disk_manager() {
 update_quota(){
   local RES=$1
   
-  echo "@md_update_quota($$) updating quota in MD_FILE"
+  echo "@md_update_quota($$) updating quota in MD_FILE with reservation of $RES"
 
   if ( ! $(is_int $MD_LINENUM) ); then
     echo "@md_update_quota($$) LINENUM is not a number, $MD_LINENUM"
@@ -497,6 +497,12 @@ update_quota(){
 
   #update the line 
   sed -i "$MD_LINENUM"s/".*"/"$MD_DISKID $MD_MAXDISK $NEWQUOTA"/ $MD_FILE
+  if (( $? != 0 )); then
+    echo "@md_update_quota($$) ERROR ERROR ERROR"
+    echo "update sed command failed"
+    return 1
+  fi
+  return 0
 
 }
 
